@@ -1,85 +1,103 @@
-# 🏎️ Trackmania GBX MCP Server & Map Generator
+# Trackmania GBX MCP Server & Map Generator (Experiment)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js](https://img.shields.io/badge/Node.js-v20%2B-green.svg)](https://nodejs.org/)
-[![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)](https://dotnet.microsoft.com/)
-[![MCP](https://img.shields.io/badge/MCP-Compatible-blue.svg)](https://modelcontextprotocol.io/)
+> [!WARNING]
+> **Status: Experimental Prototype / Proof of Concept**  
+> This project was an exploratory experiment testing whether LLMs can construct valid Trackmania maps using the Model Context Protocol (MCP) and [GBX.NET](https://github.com/BigBang1112/gbx-net).
+> 
+> **Output Quality & Limitations:**  
+> In its current state, map generation is **very basic and mostly unviable for competitive or realistic driving**. Because no RAG system or contextual few-shot libraries were implemented (providing pre-built modular segments such as proper loopings, dirt transitions, banked wallrides, or calculated jumps), the LLM generates naive, linear block sequences without spatial momentum, car physics, or landing height validation.
+> 
+> This repository serves primarily as an architectural demonstration of GBX binary serialization via C#, a relative Turtle DSL parser, and MCP tooling for Trackmania Forever (`.Challenge.Gbx`).
 
-An intelligent **Model Context Protocol (MCP) Server** and standalone CLI engine that enables LLMs (such as Claude, Antigravity, or ChatGPT) to design, validate, and compile playable **Trackmania GBX maps** (`.Challenge.Gbx` / `.Map.Gbx`) directly into the game.
-
-Powered by **[GBX.NET](https://github.com/BigBang1112/gbx-net)** and a custom **Turtle Track-Builder DSL** that solves 3D spatial alignment challenges for generative AI.
-
----
-
-## 🌟 Highlights
-
-- **Dual-Mode Workflow:**
-  - **Interactive MCP Server:** Connect Claude Desktop, Cursor, or Antigravity via MCP. Claude designs maps interactively, queries block catalogs, validates geometry, and writes `.Gbx` files directly into your game folder.
-  - **Standalone CLI:** Don't have MCP? Just ask your LLM for JSON/DSL and run `node dist/cli.js build track.json --export`.
-- **Turtle Track Builder (Relative DSL):** Prevents coordinate hallucinations by allowing sequential actions (`start -> forward(3) -> turbo -> turn_right -> slope_up -> checkpoint -> slope_down -> finish`). Features authentic 2x2 banked asphalt road curves (`StadiumRoadMainGTCurve2`), automatic 180° downhill ramp rotations, and seamless `Variant = 3` road connectivity.
-- **MCP Prompts Ready:** Exposes `trackmania_designer` (comprehensive LLM track architect instructions) and `generate_track` (customized generation request).
-- **Comprehensive LLM Design Guide:** See [`TRACK_DESIGN_GUIDE.md`](./TRACK_DESIGN_GUIDE.md) for full coordinate, footprint, slope stride, and pacing reference.
-- **Built-in Track Validator:** Verifies Start/Finish integrity, warns of coordinate overlaps/collisions, and checks checkpoint pacing.
-- **Pre-indexed Block Catalog:** Includes 236 indexed Stadium block types extracted from official Nadeo tracks with categories and frequency stats.
-- **Reference Map Scraper:** Drop any `.Challenge.Gbx` or `.Map.Gbx` into `data/reference_maps/` and run `npm run cli -- catalog` to expand the block catalog.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![GBX.NET: Multi-Licensed](https://img.shields.io/badge/GBX.NET-MIT%20%2F%20GPL%20v3-orange.svg)](https://github.com/BigBang1112/gbx-net#license)
+[![Node.js](https://img.shields.io/badge/Node.js-v20%2B-informational.svg)](https://nodejs.org/)
+[![.NET](https://img.shields.io/badge/.NET-8.0-informational.svg)](https://dotnet.microsoft.com/)
+[![MCP](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
 
 ---
 
-## 🏗️ Architecture
+## Overview
+
+Large language models struggle with generating 3D voxel and grid-aligned track structures when prompted for absolute world coordinates. This project addresses the translation pipeline through three primary components:
+
+1. **Turtle Track DSL:** A relative movement engine (`start -> forward -> slope_up -> turn_right -> checkpoint -> finish`) that abstracts coordinate math, heading vectors, 2x2 curve footprints, and height offsets.
+2. **C# GBX Bridge (`tm-gbx-cli`):** Integrates with `GBX.NET` and `GBX.NET.LZO` to inject generated block arrays into a template Stadium map (`blank_stadium.Challenge.Gbx`) and serializes binary, compressed `.Challenge.Gbx` files.
+3. **MCP Server:** Exposes map inspection, block catalog querying, validation, and track compilation tools to MCP clients (such as Claude Desktop, Cursor, or Antigravity).
+
+---
+
+## Technical Bottlenecks
+
+If you are looking to build a viable generative map tool, several structural pieces are missing in this prototype:
+
+- **Missing RAG / Few-Shot Retrieval:** The LLM only receives a raw list of block IDs and coordinates (`block_catalog.json`). It has no mechanism to look up compound track patterns (e.g., how an off-camber dirt transition connects to a road ramp).
+- **Lack of Multi-Block Section Modules:** Realistic Trackmania maps consist of compound modules (curved wallrides, dirt drifts, technical chicane complexes). Without providing sample segments as structured context, LLMs default to disjointed straight roads and basic curves.
+- **No Physics or Momentum Validation:** The built-in validator only verifies geometry (start/finish presence, simple coordinate overlaps). It does not simulate speed, trajectory, clearance, or landing vectors.
+
+---
+
+## Architecture
 
 ```mermaid
 graph TD
-    User([User Prompt: 'Build a tech drift map with a hillclimb']) --> LLM[Claude / LLM]
-
+    UserPrompt[User Prompt] --> LLM[LLM / MCP Client]
+    
     subgraph MCP Server Layer
-        LLM -- Model Context Protocol --> MCPServer[Trackmania MCP Server]
-        MCPServer --> ToolCatalog[search_blocks]
-        MCPServer --> ToolTurtle[build_track_turtle]
-        MCPServer --> ToolRaw[build_track_raw]
-        MCPServer --> ToolValidator[TrackValidator]
+        LLM --> ToolTurtle[build_track_turtle]
+        LLM --> ToolRaw[build_track_raw]
+        LLM --> ToolCatalog[search_blocks]
+        LLM --> ToolInspect[inspect_map]
     end
-
-    subgraph Compiler & Serialization Layer
-        ToolTurtle --> TurtleBuilder[Turtle Track DSL Engine]
-        TurtleBuilder --> TrackValidator
-        TrackValidator --> Bridge[GBX.NET Bridge: tm-gbx-cli]
-        TemplateMap[(data/templates/blank_stadium.Challenge.Gbx)] --> Bridge
-        Bridge --> BinaryEngine[GBX.NET 2.4.4 + LZO Compression]
+    
+    subgraph Pipeline & Serialization
+        ToolTurtle --> DSLParser[Turtle DSL Parser]
+        DSLParser --> Validator[TrackValidator]
+        ToolRaw --> Validator
+        Validator --> Bridge[GBX Bridge: tm-gbx-cli]
+        Template[blank_stadium.Challenge.Gbx] --> Bridge
+        Bridge --> BinaryEngine[GBX.NET 2.4.4 + GBX.NET.LZO]
     end
-
-    BinaryEngine --> OutputGBX[Playable .Challenge.Gbx / .Map.Gbx]
-    OutputGBX --> GameDir[Documents/TmForever/Tracks/Challenges/My Challenges/AI_Generated]
+    
+    BinaryEngine --> Output[Playable .Challenge.Gbx]
+    Output --> GameDir[Local Trackmania User Directory]
 ```
 
 ---
 
-## 🚀 Quickstart
+## Prerequisites
 
-### 1. Prerequisites
-- **Node.js**: v20 or higher
-- **.NET 8 SDK**: Required for compiling the binary GBX serialization engine.
-
-### 2. Installation
-Clone the repository and install dependencies:
-```bash
-git clone https://github.com/cheatoskar/llm-trackmania-map-generator.git
-cd llm-trackmania-map-generator
-npm install
-npm run build
-```
-
-Compile the C# GBX engine:
-```bash
-cd tm-gbx-cli
-dotnet build
-cd ..
-```
+- **Node.js**: v20 or later
+- **.NET 8.0 SDK**: Required for compiling the C# GBX CLI bridge (`tm-gbx-cli`)
 
 ---
 
-## 🤖 MCP Server Setup (Claude Desktop, Cursor, Antigravity)
+## Installation & Build
 
-Add this configuration to your `claude_desktop_config.json` (located at `%APPDATA%\Claude\claude_desktop_config.json` on Windows or `~/Library/Application Support/Claude/` on macOS):
+1. **Clone the repository and install Node dependencies:**
+   ```bash
+   git clone https://github.com/cheatoskar/llm-trackmania-map-generator.git
+   cd llm-trackmania-map-generator
+   npm install
+   npm run build
+   ```
+
+2. **Build the C# GBX engine:**
+   ```bash
+   cd tm-gbx-cli
+   dotnet build -c Release
+   cd ..
+   ```
+
+---
+
+## Configuration (MCP)
+
+To use the generator with Claude Desktop, Cursor, or Antigravity, add the server to your MCP configuration file:
+
+**Claude Desktop Configuration Path:**
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 ```json
 {
@@ -94,67 +112,54 @@ Add this configuration to your `claude_desktop_config.json` (located at `%APPDAT
 }
 ```
 
-Once connected, Claude will have access to all trackbuilding tools:
+### Available Tools
 
-| MCP Tool | Description |
+| Tool | Purpose |
 | :--- | :--- |
-| `search_blocks` | Query 236 Stadium blocks by category, surface, or keyword. |
-| `build_track_turtle` | Build a track via sequential actions (`start`, `forward`, `slope_up`, `turn_right`, `checkpoint`, `finish`). Automatically computes 3D grid vectors. |
-| `build_track_raw` | Build a track from an explicit list of block names, coordinates, and directions. |
-| `inspect_map` | Analyze any `.Gbx` map and return author, block list, and statistics. |
-| `list_reference_maps`| List all maps currently placed in `data/reference_maps/`. |
-| `export_to_game` | Copy any generated track directly to your Trackmania user folder. |
+| `build_track_turtle` | Builds a track sequentially using relative actions (`forward`, `slope_up`, `turn_right`, etc.). |
+| `build_track_raw` | Compiles an explicit list of block names, orientations, and 3D coordinates. |
+| `search_blocks` | Queries the indexed Stadium block catalog by keyword, type, or surface. |
+| `inspect_map` | Reads an existing `.Gbx` track file and reports author metadata, block count, and block inventory. |
+| `list_reference_maps` | Lists `.Gbx` files available in `data/reference_maps/`. |
+| `export_to_game` | Copies a generated track directly to the local Trackmania user folder. |
 
 ---
 
-## 💻 Standalone CLI Usage (Without MCP)
+## CLI Usage (Standalone)
 
-If you prefer having the LLM output raw JSON or Turtle DSL files:
+You can run the compiler without an MCP client by supplying JSON definitions directly:
 
-### Build from Turtle DSL (Recommended)
+### 1. Build via Turtle DSL
 ```bash
 node dist/cli.js turtle examples/turtle_track.json --export
 ```
 
-### Build from Raw Block JSON
+### 2. Build via Raw Coordinates
 ```bash
 node dist/cli.js build examples/simple_sprint.json --export
 ```
 
-### Inspect any existing Map
+### 3. Inspect an Existing Map
 ```bash
 node dist/cli.js inspect examples/AI_Turtle_Hillclimb.Challenge.Gbx
 ```
 
-### Re-scan Reference Maps & Update Block Catalog
+### 4. Re-index Reference Maps
+Place `.Challenge.Gbx` files into `data/reference_maps/` and run:
 ```bash
 npm run cli -- catalog
 ```
+This parses the maps and updates `data/block_catalog.json` with extracted block types and frequency statistics.
 
 ---
 
-## 📂 Reference Maps & Templates
+## Track Formats
 
-Where should you place reference maps?
-
-```
-data/
-├── reference_maps/    # Drop any .Challenge.Gbx or .Map.Gbx here!
-├── templates/         # Clean template maps (e.g. blank_stadium.Challenge.Gbx)
-└── block_catalog.json # Indexed blocks with frequency and coordinates
-```
-
-- When you add new tracks into `data/reference_maps/`, run `npm run cli -- catalog`. The tool will automatically parse the files, find all unique blocks, categorize them, and update `data/block_catalog.json`.
-
----
-
-## 📄 Track DSL Examples
-
-### Turtle DSL (`turtle_track.json`)
+### Turtle DSL (`examples/turtle_track.json`)
 ```json
 {
-  "mapName": "AI Mountain Sprint",
-  "author": "Claude AI",
+  "mapName": "Prototype Sprint",
+  "author": "Experimental Builder",
   "startX": 16,
   "startY": 9,
   "startZ": 10,
@@ -172,11 +177,11 @@ data/
 }
 ```
 
-### Raw JSON (`simple_sprint.json`)
+### Raw Block JSON (`examples/simple_sprint.json`)
 ```json
 {
-  "mapName": "AI Stadium Sprint",
-  "author": "Claude AI",
+  "mapName": "Raw Coordinate Sprint",
+  "author": "Experimental Builder",
   "blocks": [
     { "name": "StadiumRoadMainStartLine", "x": 16, "y": 9, "z": 10, "dir": "North" },
     { "name": "StadiumRoadMain", "x": 16, "y": 9, "z": 11, "dir": "North" },
@@ -189,9 +194,21 @@ data/
 
 ---
 
-## ⚖️ License & Legal Attribution
+## Potential Improvements
 
-- This project is licensed under the [MIT License](LICENSE).
-- **[GBX.NET](https://github.com/BigBang1112/gbx-net)** is developed by BigBang1112 and licensed under the Apache 2.0 / MIT License.
-- **Model Context Protocol (MCP)** is developed by Anthropic, PBC.
-- **Disclaimer:** Trackmania and Nadeo are registered trademarks of Ubisoft Nadeo. This is an unofficial, open-source community tool and is not affiliated with or endorsed by Ubisoft or Nadeo.
+To move this approach beyond a basic prototype:
+1. **Curated Pattern Library (RAG):** Store verified compound sections (e.g., 180° dirt drift, wallride entries, standardized gap jumps) in a vector or relational store to provide contextual few-shot examples during generation.
+2. **Spline-Based Pathfinding:** Generate the racing line as a 3D spline first, calculate curvature and elevation constraints, and snap matching blocks to the path.
+3. **Automated Drivability Checks:** Run a headless physics or ghost evaluation agent to verify that generated maps are physically completable.
+
+---
+
+## License & Attribution
+
+- **Project Code:** Licensed under the [MIT License](LICENSE).
+- **[GBX.NET](https://github.com/BigBang1112/gbx-net) (by BigBang1112):**  
+  - Core library (`GBX.NET`): **MIT License**
+  - Compression library (`GBX.NET.LZO`): **GNU General Public License v3.0 (GPLv3)** (due to Oberhumer's LZO compression license requirements).  
+  - *Note:* Because `tm-gbx-cli` depends on `GBX.NET.LZO` for writing compressed map data, compiled binaries incorporating this module are subject to GPLv3.
+- **Model Context Protocol (MCP):** Developed by Anthropic, PBC.
+- **Disclaimer:** Trackmania and Nadeo are registered trademarks of Ubisoft Nadeo. This is an independent, non-commercial community project and is not affiliated with or endorsed by Ubisoft or Nadeo.
