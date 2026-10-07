@@ -203,6 +203,12 @@ To move this approach beyond a basic prototype:
 
 ---
 
+## Development Note
+
+This project was developed with the help of [Claude Code](https://claude.com/claude-code). The ideas, presets, design and testing are my own, with AI assisting throughout the development process. If you find a bug, please report it in the [issues](https://github.com/cheatoskar/trackmania-map-mcp/issues).
+
+---
+
 ## License & Attribution
 
 - **Project Code:** Licensed under the [MIT License](LICENSE).
